@@ -1,0 +1,583 @@
+---
+title: "Project"
+author: "Guanghong Yi"
+date: "2024-06-03"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(splatter)
+  library(scater)
+  library(scran)
+  library(SingleCellExperiment)
+  library(ggplot2)
+  library(reshape2)
+  library(pheatmap)
+  library(lme4)
+  library(Matrix)
+  library(gridExtra)
+  library(patchwork)
+  library(cowplot)
+})
+```
+
+### Read Data
+
+```{r}
+klein_data <- read.csv("Klein.csv", row.names = 1)
+sce <- SingleCellExperiment(assays = list(counts = as.matrix(klein_data)))
+```
+
+
+### Splat
+```{r}
+params_splat <- splatEstimate(sce)
+sim_sce_splat <- splatSimulate(params_splat, nGenes = nrow(klein_data))
+```
+
+### Simple
+```{r}
+params_simple <- simpleEstimate(sce)
+sim_sce_simple <- simpleSimulate(params_simple, nGenes = nrow(klein_data))
+```
+
+### Lun
+```{r}
+params_lun <- lunEstimate(sce)
+sim_sce_lun <- lunSimulate(params_lun, nGenes = nrow(klein_data))
+```
+
+
+
+
+
+
+
+### Visulization
+```{r}
+calculate_mean_expression <- function(sce) {
+  log2(rowMeans(assay(sce, "counts") + 1))
+}
+
+mean_real <- calculate_mean_expression(sce)
+mean_splat <- calculate_mean_expression(sim_sce_splat)
+mean_simple <- calculate_mean_expression(sim_sce_simple)
+mean_lun <- calculate_mean_expression(sim_sce_lun)
+```
+
+```{r}
+data <- data.frame(
+  Expression = c(mean_real, mean_splat, mean_simple, mean_lun),
+  Model = factor(rep(c("Real", "Splat", "Simple", "Lun"), 
+                     each = length(mean_real)))
+)
+```
+
+```{r}
+ggplot(data, aes(x = Model, y = Expression, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Mean Expression",
+       y = "Mean log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+diff_splat <- mean_splat - mean_real
+diff_simple <- mean_simple - mean_real
+diff_lun <- mean_lun - mean_real
+```
+
+```{r}
+data_diff <- data.frame(
+  Difference = c(diff_splat, diff_simple, diff_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(mean_real)))
+)
+```
+
+```{r}
+ggplot(data_diff, aes(x = Model, y = Difference, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Difference in Mean Expression",
+       y = "Rank difference mean log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_variance <- function(sce) {
+  log2(apply(assay(sce, "counts") + 1, 1, var))
+}
+
+var_real <- calculate_variance(sce)
+var_splat <- calculate_variance(sim_sce_splat)
+var_simple <- calculate_variance(sim_sce_simple)
+var_lun <- calculate_variance(sim_sce_lun)
+```
+
+```{r}
+data_var <- data.frame(
+  Variance = c(var_real, var_splat, var_simple, var_lun),
+  Model = factor(rep(c("Real", "Splat", "Simple", "Lun"),
+                      each = length(var_real)))
+)
+```
+
+```{r}
+ggplot(data_var, aes(x = Model, y = Variance, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Variance",
+       y = "Variance log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+p1 <- ggplot(data, aes(x = Model, y = Expression, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Mean Expression",
+       y = "Mean log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  
+
+p2 <- ggplot(data_var, aes(x = Model, y = Variance, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Variance",
+       y = "Variance log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") 
+
+legend <- get_legend(
+  ggplot(data, aes(x = Model, y = Expression, fill = Model)) +
+    geom_boxplot() +
+    theme_minimal() +
+    theme(legend.position = "bottom")  
+)
+
+combined_plot <- (p1 + p2) / legend + plot_layout(ncol = 1, heights = c(10, 1))
+print(combined_plot)
+```
+
+```{r}
+diff_var_splat <- var_splat - var_real
+diff_var_simple <- var_simple - var_real
+diff_var_lun <- var_lun - var_real
+```
+
+```{r}
+data_diff_var <- data.frame(
+  Difference = c(diff_var_splat, diff_var_simple, diff_var_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(var_real)))
+)
+```
+
+```{r}
+ggplot(data_diff_var, aes(x = Model, y = Difference, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Difference in Variance",
+       y = "Rank difference variance log2(CPM + 1)",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_mean_variance <- function(sce) {
+  counts <- assay(sce, "counts") + 1 
+  means <- log2(rowMeans(counts))
+  variances <- log2(apply(counts, 1, var))
+  data.frame(mean = means, variance = variances)
+}
+
+mean_var_real <- calculate_mean_variance(sce)
+mean_var_splat <- calculate_mean_variance(sim_sce_splat)
+mean_var_simple <- calculate_mean_variance(sim_sce_simple)
+mean_var_lun <- calculate_mean_variance(sim_sce_lun)
+```
+
+```{r}
+mean_var_real$Model <- "Real"
+mean_var_splat$Model <- "Splat"
+mean_var_simple$Model <- "Simple"
+mean_var_lun$Model <- "Lun"
+
+data_mean_var <- rbind(mean_var_real, mean_var_splat, mean_var_simple, mean_var_lun)
+```
+
+```{r}
+ggplot(data_mean_var, aes(x = mean, y = variance, color = Model)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  theme_minimal() +
+  labs(title = "Mean-Variance Relationship",
+       x = "Mean log2(CPM + 1)",
+       y = "Variance log2(CPM + 1)") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+calculate_mean_variance <- function(sce) {
+  counts <- assay(sce, "counts") + 1  # Adding 1 to avoid log2(0)
+  means <- log2(rowMeans(counts))
+  variances <- log2(apply(counts, 1, var))
+  data.frame(mean = means, variance = variances)
+}
+
+mean_var_real <- calculate_mean_variance(sce)
+mean_var_splat <- calculate_mean_variance(sim_sce_splat)
+mean_var_simple <- calculate_mean_variance(sim_sce_simple)
+mean_var_lun <- calculate_mean_variance(sim_sce_lun)
+```
+
+```{r}
+diff_var_splat <- mean_var_splat$variance - mean_var_real$variance
+diff_var_simple <- mean_var_simple$variance - mean_var_real$variance
+diff_var_lun <- mean_var_lun$variance - mean_var_real$variance
+```
+
+```{r}
+data_diff_var <- data.frame(
+  Rank = rep(1:length(diff_var_splat), 3),
+  Difference = c(diff_var_splat, diff_var_simple, diff_var_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(diff_var_splat)))
+)
+```
+
+```{r}
+ggplot(data_diff_var, aes(x = Rank, y = Difference, color = Model)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Difference in Mean-Variance Relationship",
+       x = "Expression rank",
+       y = "Difference in variance log2(CPM + 1)") +
+  geom_hline(yintercept = 0, color = "red") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+calculate_library_sizes <- function(sce) {
+  colSums(assay(sce, "counts"))
+}
+
+lib_size_real <- calculate_library_sizes(sce)
+lib_size_splat <- calculate_library_sizes(sim_sce_splat)
+lib_size_simple <- calculate_library_sizes(sim_sce_simple)
+lib_size_lun <- calculate_library_sizes(sim_sce_lun)
+```
+
+```{r}
+data_lib_sizes <- data.frame(
+  LibrarySize = c(lib_size_real, lib_size_splat, lib_size_simple, lib_size_lun),
+  Model = factor(rep(c("Real", "Splat", "Simple", "Lun"),
+                      each = length(lib_size_real)))
+)
+```
+
+```{r}
+ggplot(data_lib_sizes, aes(x = Model, y = LibrarySize, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Library Sizes",
+       y = "Total counts per cell",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_library_sizes <- function(sce) {
+  colSums(assay(sce, "counts"))
+}
+
+lib_size_real <- calculate_library_sizes(sce)
+lib_size_splat <- calculate_library_sizes(sim_sce_splat)
+lib_size_simple <- calculate_library_sizes(sim_sce_simple)
+lib_size_lun <- calculate_library_sizes(sim_sce_lun)
+```
+
+```{r}
+diff_lib_size_splat <- lib_size_splat - lib_size_real
+diff_lib_size_simple <- lib_size_simple - lib_size_real
+diff_lib_size_lun <- lib_size_lun - lib_size_real
+```
+
+```{r}
+data_diff_lib_sizes <- data.frame(
+  Difference = c(diff_lib_size_splat, diff_lib_size_simple, diff_lib_size_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(lib_size_real)))
+)
+```
+
+```{r}
+ggplot(data_diff_lib_sizes, aes(x = Model, y = Difference, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Difference in Library Sizes",
+       y = "Difference in total counts per cell",
+       x = "") +
+  geom_hline(yintercept = 0, color = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_zeros_per_cell <- function(sce) {
+  counts <- assay(sce, "counts")
+  zero_counts <- colSums(counts == 0)
+  total_counts <- nrow(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  zero_percentage
+}
+
+zeros_real <- calculate_zeros_per_cell(sce)
+zeros_splat <- calculate_zeros_per_cell(sim_sce_splat)
+zeros_simple <- calculate_zeros_per_cell(sim_sce_simple)
+zeros_lun <- calculate_zeros_per_cell(sim_sce_lun)
+```
+
+```{r}
+data_zeros <- data.frame(
+  Zeros = c(zeros_real, zeros_splat, zeros_simple, zeros_lun),
+  Model = factor(rep(c("Real", "Splat", "Simple", "Lun"),
+                      each = length(zeros_real)))
+)
+```
+
+```{r}
+ggplot(data_zeros, aes(x = Model, y = Zeros, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Zeros per Cell",
+       y = "Percentage zeros per cell",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_zeros_per_cell <- function(sce) {
+  counts <- assay(sce, "counts")
+  zero_counts <- colSums(counts == 0)
+  total_counts <- nrow(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  zero_percentage
+}
+
+zeros_real <- calculate_zeros_per_cell(sce)
+zeros_splat <- calculate_zeros_per_cell(sim_sce_splat)
+zeros_simple <- calculate_zeros_per_cell(sim_sce_simple)
+zeros_lun <- calculate_zeros_per_cell(sim_sce_lun)
+```
+
+```{r}
+diff_zeros_splat <- zeros_splat - zeros_real
+diff_zeros_simple <- zeros_simple - zeros_real
+diff_zeros_lun <- zeros_lun - zeros_real
+```
+
+```{r}
+data_diff_zeros <- data.frame(
+  Difference = c(diff_zeros_splat, diff_zeros_simple, diff_zeros_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(zeros_real)))
+)
+```
+
+```{r}
+ggplot(data_diff_zeros, aes(x = Model, y = Difference, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Difference in Zeros per Cell",
+       y = "Rank difference percentage zeros",
+       x = "") +
+  geom_hline(yintercept = 0, color = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+calculate_zeros_per_gene <- function(sce) {
+  counts <- assay(sce, "counts")
+  zero_counts <- rowSums(counts == 0)
+  total_counts <- ncol(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  zero_percentage
+}
+
+zeros_real_gene <- calculate_zeros_per_gene(sce)
+zeros_splat_gene <- calculate_zeros_per_gene(sim_sce_splat)
+zeros_simple_gene <- calculate_zeros_per_gene(sim_sce_simple)
+zeros_lun_gene <- calculate_zeros_per_gene(sim_sce_lun)
+```
+
+```{r}
+data_zeros_gene <- data.frame(
+  Zeros = c(zeros_real_gene, zeros_splat_gene, zeros_simple_gene, zeros_lun_gene),
+  Model = factor(rep(c("Real", "Splat", "Simple", "Lun"),
+                      each = length(zeros_real_gene)))
+)
+```
+
+```{r}
+ggplot(data_zeros_gene, aes(x = Model, y = Zeros, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Zeros per Gene",
+       y = "Percentage zeros per gene",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+p3 <- ggplot(data_zeros, aes(x = Model, y = Zeros, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Zeros per Cell",
+       y = "Percentage zeros per cell",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  
+
+p4 <- ggplot(data_zeros_gene, aes(x = Model, y = Zeros, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribution of Zeros per Gene",
+       y = "Percentage zeros per gene",
+       x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  
+
+legend <- get_legend(
+  ggplot(data_zeros, aes(x = Model, y = Zeros, fill = Model)) +
+    geom_boxplot() +
+    theme_minimal() +
+    theme(legend.position = "bottom")  
+)
+
+combined_plot2 <- (p3 + p4) / legend + plot_layout(ncol = 1, heights = c(10, 1))
+print(combined_plot2)
+```
+
+```{r}
+calculate_zeros_per_gene <- function(sce) {
+  counts <- assay(sce, "counts")
+  zero_counts <- rowSums(counts == 0)
+  total_counts <- ncol(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  zero_percentage
+}
+
+zeros_real_gene <- calculate_zeros_per_gene(sce)
+zeros_splat_gene <- calculate_zeros_per_gene(sim_sce_splat)
+zeros_simple_gene <- calculate_zeros_per_gene(sim_sce_simple)
+zeros_lun_gene <- calculate_zeros_per_gene(sim_sce_lun)
+```
+
+```{r}
+diff_zeros_splat_gene <- zeros_splat_gene - zeros_real_gene
+diff_zeros_simple_gene <- zeros_simple_gene - zeros_real_gene
+diff_zeros_lun_gene <- zeros_lun_gene - zeros_real_gene
+```
+
+```{r}
+data_diff_zeros_gene <- data.frame(
+  Difference = c(diff_zeros_splat_gene, diff_zeros_simple_gene, diff_zeros_lun_gene),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(zeros_real_gene)))
+)
+```
+
+```{r}
+ggplot(data_diff_zeros_gene, aes(x = Model, y = Difference, fill = Model)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Difference in Zeros per Gene",
+       y = "Rank difference percentage zeros",
+       x = "") +
+  geom_hline(yintercept = 0, color = "red") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+calculate_mean_zeros <- function(sce) {
+  counts <- assay(sce, "counts")
+  mean_counts <- rowMeans(counts)
+  zero_counts <- rowSums(counts == 0)
+  total_counts <- ncol(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  data.frame(mean = mean_counts, zeros = zero_percentage)
+}
+
+mean_zeros_real <- calculate_mean_zeros(sce)
+mean_zeros_splat <- calculate_mean_zeros(sim_sce_splat)
+mean_zeros_simple <- calculate_mean_zeros(sim_sce_simple)
+mean_zeros_lun <- calculate_mean_zeros(sim_sce_lun)
+```
+
+```{r}
+mean_zeros_real$Model <- "Real"
+mean_zeros_splat$Model <- "Splat"
+mean_zeros_simple$Model <- "Simple"
+mean_zeros_lun$Model <- "Lun"
+
+data_mean_zeros <- rbind(mean_zeros_real, mean_zeros_splat, mean_zeros_simple, mean_zeros_lun)
+```
+
+```{r}
+ggplot(data_mean_zeros, aes(x = mean, y = zeros, color = Model)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE) +
+  scale_x_log10() +
+  theme_minimal() +
+  labs(title = "Mean-Zeros Relationship",
+       x = "Mean count",
+       y = "Percentage zeros") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+calculate_mean_zeros <- function(sce) {
+  counts <- assay(sce, "counts")
+  mean_counts <- rowMeans(counts)
+  zero_counts <- rowSums(counts == 0)
+  total_counts <- ncol(counts)
+  zero_percentage <- (zero_counts / total_counts) * 100
+  data.frame(mean = mean_counts, zeros = zero_percentage)
+}
+
+mean_zeros_real <- calculate_mean_zeros(sce)
+mean_zeros_splat <- calculate_mean_zeros(sim_sce_splat)
+mean_zeros_simple <- calculate_mean_zeros(sim_sce_simple)
+mean_zeros_lun <- calculate_mean_zeros(sim_sce_lun)
+```
+
+```{r}
+diff_zeros_splat <- mean_zeros_splat$zeros - mean_zeros_real$zeros
+diff_zeros_simple <- mean_zeros_simple$zeros - mean_zeros_real$zeros
+diff_zeros_lun <- mean_zeros_lun$zeros - mean_zeros_real$zeros
+```
+
+```{r}
+data_diff_zeros <- data.frame(
+  Rank = rep(1:length(diff_zeros_splat), 3),
+  Difference = c(diff_zeros_splat, diff_zeros_simple, diff_zeros_lun),
+  Model = factor(rep(c("Splat", "Simple", "Lun"), each = length(diff_zeros_splat)))
+)
+```
+
+```{r}
+ggplot(data_diff_zeros, aes(x = Rank, y = Difference, color = Model)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Difference in Mean-Zeros Relationship",
+       x = "Expression rank",
+       y = "Difference in percentage zeros per gene") +
+  geom_hline(yintercept = 0, color = "red") +
+  theme(legend.position = "bottom")
+```
+
